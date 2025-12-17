@@ -1,87 +1,125 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Z-Stack Server</title>
     <style>
-        body { 
-            font-family: sans-serif; 
-            text-align: center; 
-            padding: 50px; 
-            background: #222; 
-            color: #fff; 
+        :root {
+            --bg-color: #1a1a1a;
+            --box-color: #252525;
+            --accent-color: #4CAF50;
+            --text-color: #f0f0f0;
         }
-        h1 { 
-            color: #4CAF50; 
-            margin-bottom: 0; /* Remove bottom margin to sit closer to SVG if needed, or keep standard */
+        body { 
+            font-family: 'SF Mono', 'Segoe UI Mono', 'Roboto Mono', monospace; 
+            text-align: center; 
+            margin: 0;
+            padding: 0;
+            background: var(--bg-color); 
+            color: var(--text-color); 
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            padding: 20px;
         }
         .box { 
-            border: 2px solid #4CAF50; 
+            background: var(--box-color);
+            border: 1px solid var(--accent-color); 
             padding: 40px; 
             display: inline-block; 
-            border-radius: 10px; 
-            max-width: 500px;
+            border-radius: 12px; 
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            transition: transform 0.2s;
+        }
+        .box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 40px rgba(76, 175, 80, 0.2);
+        }
+        h1 { 
+            color: var(--accent-color); 
+            margin: 0 0 10px 0;
+            font-size: 2rem;
+            letter-spacing: -1px;
         }
         svg {
-            width: 160px;
+            width: 140px;
             height: auto;
-            display: block;     /* Ensures it takes its own line */
-            margin: 20px auto;  /* Centers it and adds spacing above/below */
-            border-radius: 8px; 
+            display: block;
+            margin: 25px auto;
+            shape-rendering: crispEdges; /* Keeps pixel art sharp */
         }
+        
+        /* Subtle animation for the screen */
+        .code-green { animation: flicker 3s infinite; }
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .meta { opacity: 0.7; font-size: 0.9rem; margin-top: 15px; }
+        .tagline { color: var(--accent-color); font-weight: bold; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <h1>It Works!</h1>
+    <div class="container">
+        <div class="box">
+            <h1>It Works!</h1>
 
-        <svg width="512" height="512" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
-          <rect width="32" height="32" fill="#222222"/>
-          
-          <style>
-            .desk-brown { fill: #8d6e63; }
-            .chair-dark { fill: #4e342e; }
-            .tunic-brown { fill: #8b5a2b; }
-            .skin-green { fill: #55cc55; }
-            .dark-green { fill: #2d5e2d; }
-            .comp-light { fill: #c0c0c0; }
-            .comp-dark { fill: #808080; }
-            .screen-black { fill: #050505; }
-            .code-green { fill: #00ff00; }
-            .eye-white { fill: #ffffff; }
-          </style>
+            <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+              <style>
+                .desk-brown { fill: #8d6e63; }
+                .chair-dark { fill: #4e342e; }
+                .tunic-brown { fill: #8b5a2b; }
+                .skin-green { fill: #55cc55; }
+                .dark-green { fill: #2d5e2d; }
+                .comp-light { fill: #c0c0c0; }
+                .comp-dark { fill: #808080; }
+                .screen-black { fill: #050505; }
+                .code-green { fill: #00ff00; }
+                .eye-white { fill: #ffffff; }
+              </style>
+              <rect x="3" y="18" width="16" height="1" class="desk-brown" /> 
+              <rect x="4" y="19" width="2" height="12" class="desk-brown" /> 
+              <rect x="16" y="19" width="2" height="12" class="desk-brown" /> 
+              <rect x="25" y="15" width="2" height="9" class="chair-dark" /> 
+              <rect x="20" y="23" width="5" height="2" class="chair-dark" /> 
+              <rect x="22" y="25" width="2" height="5" class="chair-dark" /> 
+              <rect x="20" y="29" width="6" height="2" class="chair-dark" /> 
+              <rect x="19" y="24" width="2" height="5" class="chair-dark" /> 
+              <rect x="6" y="16" width="4" height="2" class="comp-dark" /> 
+              <rect x="8" y="14" width="2" height="2" class="comp-dark" /> 
+              <rect x="10" y="17" width="7" height="1" class="screen-black" /> 
+              <rect x="4" y="5" width="2" height="9" class="comp-dark" /> 
+              <rect x="6" y="5" width="9" height="9" class="comp-light" /> 
+              <rect x="7" y="6" width="7" height="7" class="screen-black" /> 
+              <g class="code-green">
+                  <rect x="10" y="7" width="4" height="1" />
+                  <rect x="8" y="9" width="6" height="1" />
+                  <rect x="8" y="11" width="2" height="1" />
+                  <rect x="11" y="11" width="3" height="1" />
+              </g>
+              <rect x="17" y="28" width="4" height="1" class="dark-green" /> 
+              <rect x="20" y="15" width="5" height="8" class="tunic-brown" /> 
+              <rect x="15" y="16" width="5" height="2" class="skin-green" /> 
+              <rect x="18" y="15" width="2" height="1" class="skin-green" /> 
+              <rect x="18" y="6" width="7" height="9" rx="1" class="skin-green" /> 
+              <rect x="25" y="7" width="2" height="3" rx="0.2" class="skin-green" /> 
+              <rect x="19" y="8" width="2" height="2" class="eye-white" /> 
+              <rect x="19" y="9" width="1" height="1" class="screen-black" /> 
+              <rect x="18" y="11" width="1" height="1" class="dark-green" /> 
+              <rect x="20" y="13" width="3" height="1" class="dark-green" /> 
+            </svg>
 
-          <rect x="3" y="18" width="16" height="1" class="desk-brown" /> 
-          <rect x="4" y="19" width="2" height="12" class="desk-brown" /> 
-          <rect x="16" y="19" width="2" height="12" class="desk-brown" /> 
-          <rect x="25" y="15" width="2" height="9" class="chair-dark" /> 
-          <rect x="20" y="23" width="5" height="2" class="chair-dark" /> 
-          <rect x="22" y="25" width="2" height="5" class="chair-dark" /> 
-          <rect x="20" y="29" width="6" height="2" class="chair-dark" /> 
-          <rect x="6" y="16" width="4" height="2" class="comp-dark" /> 
-          <rect x="8" y="14" width="2" height="2" class="comp-dark" /> 
-          <rect x="10" y="17" width="7" height="1" class="screen-black" /> 
-          <rect x="4" y="5" width="2" height="9" class="comp-dark" /> 
-          <rect x="6" y="5" width="9" height="9" class="comp-light" /> 
-          <rect x="7" y="6" width="7" height="7" class="screen-black" /> 
-          <rect x="10" y="7" width="4" height="1" class="code-green" />
-          <rect x="8" y="9" width="6" height="1" class="code-green" />
-          <rect x="8" y="11" width="2" height="1" class="code-green" />
-          <rect x="11" y="11" width="3" height="1" class="code-green" />
-          <rect x="19" y="24" width="2" height="5" class="chair-dark" /> 
-          <rect x="17" y="28" width="4" height="1" class="dark-green" /> 
-          <rect x="20" y="15" width="5" height="8" class="tunic-brown" /> 
-          <rect x="15" y="16" width="5" height="2" class="skin-green" /> 
-          <rect x="18" y="15" width="2" height="1" class="skin-green" /> 
-          <rect x="18" y="6" width="7" height="9" rx="1" class="skin-green" /> 
-          <rect x="25" y="7" width="2" height="3" rx="0.2" class="skin-green" /> 
-          <rect x="19" y="8" width="2" height="2" class="eye-white" /> 
-          <rect x="19" y="9" width="1" height="1" class="screen-black" /> 
-          <rect x="18" y="11" width="1" height="1" class="dark-green" /> 
-          <rect x="20" y="13" width="3" height="1" class="dark-green" /> 
-        </svg>
-        <p>Served by <b>zhttpd</b> (Zero-Dependency C Server)</p>
-        <p>Fast. Simple. Tiny.</p>
+            <p class="meta">Served by <b>zhttpd</b></p>
+            <p class="tagline">Fast. Simple. Tiny.</p>
+        </div>
     </div>
 </body>
 </html>
-
