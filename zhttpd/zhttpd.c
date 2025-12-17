@@ -16,6 +16,10 @@
 #   define _DEFAULT_SOURCE
 #endif
 
+#if defined(_WIN32)
+#   define WIN32_LEAN_AND_MEAN
+#endif
+
 #define ZERROR_IMPLEMENTATION
 #define ZERROR_SHORT_NAMES
 #include "zerror.h"
@@ -163,10 +167,11 @@ void serve_file(znet_socket client, const char *full_path, int status_code)
         "Server: zhttpd/1.0\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
-        "Connection: keep-alive\r\n\r\n", 
+        "Connection: close\r\n\r\n", 
         status_code, (status_code == 200 ? "OK" : "Not Found"),
         get_mime(full_path), fsize);
-    
+   
+    fflush(stdout);
     send_all(client, zstr_cstr(&header), zstr_len(&header));
     zstr_free(&header);
 

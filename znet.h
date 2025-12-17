@@ -404,6 +404,7 @@ int znet_listen(znet_socket s, int backlog)
     {
         return Z_ERR;
     }
+    return Z_OK;
 }
 
 znet_socket znet_accept(znet_socket s, znet_addr *out_client_addr) 
