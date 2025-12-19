@@ -1,15 +1,23 @@
+
 CC = gcc
 CFLAGS = -std=c11 -O2 -D_GNU_SOURCE
-
 
 ifeq ($(OS),Windows_NT)
     TARGETS = zhttpd
     LIBS_STD = -lws2_32
+    MOD_EXT = .dll
+    MOD_CFLAGS = -shared
 else
     TARGETS = zhttpd zhttpd-async
+    LIBS_STD = -ldl
+    MOD_EXT = .so
+    MOD_CFLAGS = -shared -fPIC
 endif
 
-all: get_dependencies $(TARGETS)
+MODULE_SRCS = $(wildcard modules/*.c)
+MODULE_LIBS = $(MODULE_SRCS:.c=$(MOD_EXT))
+
+all: get_dependencies $(TARGETS) $(MODULE_LIBS)
 
 get_dependencies:
 	@echo "Using wget to add dependencies..."	
@@ -20,10 +28,15 @@ get_dependencies:
 	cp ../znet.h .
 
 zhttpd: zhttpd_std.c
-	$(CC) zhttpd_std.c -o zhttpd $(CFLAGS) $(LIBS_STD)
+	$(CC) zhttpd_std.c -o zhttpd $(CFLAGS) $(LIBS_STD) -DZHTTPD_DEBUG
 
 zhttpd-async: zhttpd_async.c
+ifneq ($(OS),Windows_NT)
 	$(CC) zhttpd_async.c -o zhttpd-async $(CFLAGS)
+endif
+
+modules/%$(MOD_EXT): modules/%.c
+	$(CC) $(MOD_CFLAGS) -DZNET_IMPLEMENTATION -DZTHREAD_IMPLEMENTATION -DZSTR_IMPLEMENTATION -DZFILE_IMPLEMENTATION -DZERROR_IMPLEMENTATION $< -o $@ $(CFLAGS)
 
 bench-std:
 	@echo "--- Benchmarking zhttpd (Portable) ---"
@@ -43,7 +56,7 @@ bench-async:
 clean:
 	@echo "Removing dependencies..."
 	@rm -f zerror.h zstr.h zfile.h zthread.h znet.h
-	@echo "Removing binaries..."
-	@rm -f zhttpd zhttpd-async *.o *.pid
+	@echo "Removing binaries and modules..."
+	@rm -f zhttpd zhttpd-async *.o *.pid modules/*.so modules/*.dll
 
 .PHONY: all get_dependencies clean bench-std bench-async
