@@ -18,7 +18,7 @@ if exist "..\znet.h" (
 )
 
 echo [Windows] Compiling zhttpd.exe...
-gcc zhttpd.c -o zhttpd.exe -std=c11 -lws2_32
+gcc zhttpd.c -o zhttpd.exe -std=c11 -lws2_32 -O2
 
 if %errorlevel% neq 0 goto :error
 

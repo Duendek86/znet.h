@@ -863,7 +863,7 @@ zres run_server(int argc, char **argv)
     zthread_t *threads = (zthread_t*)malloc(sizeof(zthread_t) * g_threads);
     cache_init();
 
-    printf("=> zhttpd v1.2.1 (Deadlock Fixed)\n");
+    printf("=> zhttpd v1.2\n");
     printf("   Root:    %s\n", g_root);
     printf("   Port:    %d\n", g_port);
     printf("   Threads: %d\n", g_threads);
