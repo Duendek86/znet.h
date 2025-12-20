@@ -25,10 +25,10 @@
                         </defs>
                     </svg>
                 </div>
-                <h1>Dashboard</h1>
+                <h1>Dashboard Zhttpd server</h1>
                 <span class="status-indicator">
                     <span class="pulse"></span>
-                    <span>En vivo</span>
+                    <span>Live</span>
                 </span>
             </div>
             <div class="header-right">
@@ -42,7 +42,7 @@
             <!-- Server Info -->
             <div class="info-section">
                 <div class="info-card">
-                    <h3>Información del Servidor</h3>
+                    <h3>Server info</h3>
                     <div class="info-grid">
                         <div class="info-item">
                             <span class="info-label">Uptime</span>
@@ -53,11 +53,11 @@
                             <span class="info-value" id="rps">0.00</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">MB Enviados</span>
+                            <span class="info-label">MB sent</span>
                             <span class="info-value" id="mbSent">0.00</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Última actualización</span>
+                            <span class="info-label">Last update</span>
                             <span class="info-value" id="lastUpdate">-</span>
                         </div>
                     </div>
@@ -67,7 +67,7 @@
             <!-- Tab Navigation -->
             <div class="tabs-nav">
                 <button class="tab-btn active" data-tab="stats">Stats</button>
-                <button class="tab-btn" data-tab="modules">Módulos</button>
+                <button class="tab-btn" data-tab="modules">Modules</button>
             </div>
 
             <!-- Stats Tab Content -->
@@ -77,16 +77,16 @@
                     <div class="stat-card">
                         <div class="stat-icon">👥</div>
                         <div class="stat-content">
-                            <div class="stat-label">Clientes Activos</div>
+                            <div class="stat-label">Active clients</div>
                             <div class="stat-value" id="activeClients">0</div>
-                            <div class="stat-change">En tiempo real</div>
+                            <div class="stat-change">Real time</div>
                         </div>
                     </div>
 
                     <div class="stat-card">
                         <div class="stat-icon">📊</div>
                         <div class="stat-content">
-                            <div class="stat-label">Requests Totales</div>
+                            <div class="stat-label">Total Requests</div>
                             <div class="stat-value" id="totalRequests">0</div>
                             <div class="stat-change" id="requestsChange">+0%</div>
                         </div>
@@ -95,7 +95,7 @@
                     <div class="stat-card">
                         <div class="stat-icon">⚡</div>
                         <div class="stat-content">
-                            <div class="stat-label">Tiempo de Respuesta</div>
+                            <div class="stat-label">Average response</div>
                             <div class="stat-value" id="avgResponse">0<span class="unit">ms</span></div>
                             <div class="stat-change">Promedio</div>
                         </div>
@@ -104,7 +104,7 @@
                     <div class="stat-card">
                         <div class="stat-icon">📡</div>
                         <div class="stat-content">
-                            <div class="stat-label">Tráfico Total</div>
+                            <div class="stat-label">Traffic</div>
                             <div class="stat-value" id="totalTraffic">0<span class="unit">MB</span></div>
                             <div class="stat-change" id="trafficRate">0 KB/s</div>
                         </div>
@@ -115,8 +115,8 @@
                 <div class="charts-grid">
                     <div class="chart-card">
                         <div class="chart-header">
-                            <h3>Clientes en el Tiempo</h3>
-                            <span class="chart-subtitle">Últimos 30 segundos</span>
+                            <h3>Clients/h3>
+                                <span class="chart-subtitle">Last 30 seconds</span>
                         </div>
                         <div class="chart-container">
                             <canvas id="clientsChart"></canvas>
@@ -162,26 +162,56 @@
                     <div class="modules-sidebar">
                         <h3>Gestión de Módulos</h3>
                         <ul class="modules-nav">
-                            <li class="active">Instalados</li>
-                            <!-- Future: Store -->
+                            <li class="active" data-view="installed">Instalados</li>
+                            <li data-view="store">Tienda</li>
                         </ul>
                     </div>
 
                     <!-- Modules Grid -->
                     <div class="modules-container">
                         <div class="modules-header">
-                            <h2>Módulos del Sistema</h2>
+                            <h2 id="modulesTitle">Módulos del Sistema</h2>
+                            <div id="storeControls" class="store-controls hidden">
+                                <input type="text" id="storeSearch" placeholder="Buscar módulo..." class="store-search">
+                            </div>
                             <button id="refreshModules" class="icon-btn">↻</button>
                         </div>
+
+                        <!-- Installed Modules View -->
                         <div class="modules-grid" id="modulesList">
                             <!-- Modules will be injected here via JS -->
                             <div class="loading-modules">Cargando módulos...</div>
+                        </div>
+
+                        <!-- Store View (Hidden by default) -->
+                        <div class="modules-grid hidden" id="storeList">
+                            <div class="loading-modules">Cargando tienda...</div>
+                        </div>
+
+                        <!-- Store Pagination -->
+                        <div id="storePagination" class="store-pagination hidden">
+                            <button id="prevPage" class="page-btn" disabled>&lt;</button>
+                            <span id="pageInfo">1 / 1</span>
+                            <button id="nextPage" class="page-btn" disabled>&gt;</button>
                         </div>
                     </div>
                 </div>
             </div>
 
         </main>
+        </main>
+    </div>
+
+    <!-- Custom Modal -->
+    <div id="customModal" class="modal-overlay hidden">
+        <div class="modal">
+            <h3 id="modalTitle">Confirmar Acción</h3>
+            <p id="modalMessage">¿Estás seguro?</p>
+            <div class="modal-actions">
+                <button id="modalCancel" class="modal-btn cancel">Cancelar</button>
+                <button id="modalConfirm" class="modal-btn confirm">Eliminar</button>
+            </div>
+        </div>
     </div>
 
     <script src="js/dashboard.js"></script>

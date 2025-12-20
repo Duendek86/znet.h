@@ -401,6 +401,9 @@ static bool handle_modules_list(znet_socket c, zstr_view req) {
         return true;
     }
     
+    // Read config once
+    zstr config = zfile_read_all("modules.conf");
+    
     zstr json = zstr_init();
     zstr_cat(&json, "{\n  \"modules\": [\n");
     
@@ -423,16 +426,50 @@ static bool handle_modules_list(znet_socket c, zstr_view req) {
         memcpy(mod_name, entry.name, name_len);
         mod_name[name_len] = '\0';
         
+        // check status in config
+        int status = 0; // 0: not found, 1: disabled, 2: enabled
+        
+        char *line_start = zstr_data(&config);
+        char *config_end = line_start + zstr_len(&config);
+        
+        while (line_start < config_end) {
+             char *line_end = strchr(line_start, '\n');
+             if (!line_end) line_end = config_end;
+             
+             size_t len = line_end - line_start;
+             if (len < 1024) {
+                 char line_buf[1024];
+                 memcpy(line_buf, line_start, len);
+                 line_buf[len] = 0;
+                 
+                 // Check if line contains module name
+                 if (strstr(line_buf, mod_name)) {
+                     // Check if commented
+                     bool commented = false;
+                     char *p = line_buf;
+                     while(*p == ' ' || *p == '\t') p++;
+                     if (*p == '#') commented = true;
+                     status = commented ? 1 : 2;
+                     break; 
+                 }
+             }
+             line_start = line_end + 1;
+        }
+        
+        // If not in config, skip
+        if (status == 0) continue;
+        
         if (!first) zstr_cat(&json, ",\n");
         first = false;
         
-        bool enabled = is_module_enabled(mod_name);
+        bool enabled = (status == 2);
         
         zstr_fmt(&json, "    {\"name\": \"%s\", \"enabled\": %s}", 
             mod_name, enabled ? "true" : "false");
     }
     
     zdir_close(it);
+    zstr_free(&config); // Free config
     zstr_cat(&json, "\n  ]\n}");
     
     send_json(c, 200, zstr_cstr(&json));
@@ -612,6 +649,189 @@ static bool handle_reset_dashboard(znet_socket c, zstr_view req) {
     return true;
 }
 
+// Handle /api/modules/delete
+static bool handle_modules_delete(znet_socket c, zstr_view req) {
+    if (!check_auth(req)) {
+        send_unauthorized(c, req);
+        return true;
+    }
+    
+    // Parse body for "module"
+    const char *body = NULL;
+    for (size_t i = 0; i + 4 <= req.len; i++) {
+        if (memcmp(req.data + i, "\r\n\r\n", 4) == 0) {
+            body = req.data + i + 4;
+            break;
+        }
+    }
+    
+    if (!body) {
+        send_json(c, 400, "{\"error\":\"Missing body\"}");
+        return true;
+    }
+    
+    char mod_name[256] = {0};
+    const char *p = strstr(body, "\"module\"");
+    if (p) {
+        p = strchr(p, ':');
+        if (p) {
+            p = strchr(p, '"');
+            if (p) {
+                p++; 
+                const char *end = strchr(p, '"');
+                if (end) {
+                    size_t len = end - p;
+                    if (len < sizeof(mod_name)) {
+                        memcpy(mod_name, p, len);
+                        mod_name[len] = '\0';
+                    }
+                }
+            }
+        }
+    }
+    
+    if (mod_name[0] == '\0') {
+         send_json(c, 400, "{\"error\":\"Invalid module name\"}");
+         return true;
+    }
+    
+    // Safety checks
+    if (strstr(mod_name, "..") || strchr(mod_name, '/') || strchr(mod_name, '\\')) {
+         send_json(c, 400, "{\"error\":\"Invalid module name security\"}");
+         return true;
+    }
+    
+    if (strcmp(mod_name, "mod_dashboard") == 0) {
+         send_json(c, 400, "{\"error\":\"Cannot delete the active dashboard module\"}");
+         return true;
+    }
+
+    // 1. Remove from modules.conf
+    zstr content = zfile_read_all("modules.conf");
+    zstr new_content = zstr_init();
+    
+    char *curr = zstr_data(&content);
+    char *conf_end = curr + zstr_len(&content);
+    
+    while (curr < conf_end) {
+        char *line_start = curr;
+        char *line_end = strchr(curr, '\n');
+        if (!line_end) line_end = conf_end;
+        
+        size_t line_len = line_end - line_start;
+        char temp_line[1024];
+        size_t copy_len = line_len < 1023 ? line_len : 1023;
+        memcpy(temp_line, line_start, copy_len);
+        temp_line[copy_len] = '\0';
+        
+        // If this line contains the module AND "load modules/", skip it
+        if (strstr(temp_line, mod_name) && strstr(temp_line, "load modules/")) {
+            // Skip this line (effective delete)
+        } else {
+            zstr_cat_len(&new_content, line_start, line_end - line_start);
+            zstr_cat(&new_content, "\n");
+        }
+        curr = line_end + 1;
+    }
+    
+    zfile_save_atomic("modules.conf", zstr_data(&new_content), zstr_len(&new_content));
+    zstr_free(&content);
+    zstr_free(&new_content);
+    
+    // 2. Delete files
+    char path[512];
+    
+    // Delete .c
+    snprintf(path, sizeof(path), "modules/%s.c", mod_name);
+    remove(path);
+    
+    // Delete .dll
+    snprintf(path, sizeof(path), "modules/%s.dll", mod_name);
+    int dll_res = remove(path);
+    
+    // Delete .so
+    snprintf(path, sizeof(path), "modules/%s.so", mod_name);
+    remove(path);
+    
+    if (dll_res != 0) {
+        // On Windows if it fails, it might be locked. We can't do much.
+        // We'll report "deleted_from_config" maybe?
+    }
+
+    send_json(c, 200, "{\"status\":\"ok\"}");
+    return true;
+}
+
+// Serve static assets from modules/mod_dashboard/
+static bool handle_static_assets(znet_socket c, zstr_view path) {
+    // Safety check for directory traversal
+    zstr path_str = zstr_from_len(path.data, path.len);
+    if (strstr(zstr_cstr(&path_str), "..")) {
+        zstr_free(&path_str);
+        return false;
+    }
+    zstr_free(&path_str);
+    
+    // Construct local file path
+    zstr local_path = zstr_init();
+    zstr_cat(&local_path, "modules/mod_dashboard");
+    
+    // path starts with "/dashboard" (length 10)
+    // If it's exactly "/dashboard", serve /dashboard.html ? No, browser needs redirect or relative toroot.
+    // If we are here, caller checked prefix.
+    
+    if (path.len == 10) { // "/dashboard"
+         // Redirect to /dashboard/dashboard.html
+         const char *resp = "HTTP/1.1 302 Found\r\nLocation: /dashboard/dashboard.html\r\nConnection: close\r\n\r\n";
+         znet_send(c, resp, strlen(resp));
+         zstr_free(&local_path);
+         return true;
+    } else if (path.len == 11 && path.data[10] == '/') { // "/dashboard/"
+         zstr_cat(&local_path, "/dashboard.html");
+    } else {
+         // Append everything after "/dashboard"
+         zstr_cat_len(&local_path, path.data + 10, path.len - 10);
+    }
+    
+    // Read file
+    zstr content = zfile_read_all(zstr_cstr(&local_path));
+    if (zstr_is_empty(&content)) {
+        zstr_free(&local_path);
+        // Let main server 404 (return false)
+        return false;
+    }
+    
+    // Determine content type
+    const char *mime = "text/plain";
+    if (zstr_ends_with(&local_path, ".html")) mime = "text/html";
+    else if (zstr_ends_with(&local_path, ".css")) mime = "text/css";
+    else if (zstr_ends_with(&local_path, ".js")) mime = "application/javascript";
+    else if (zstr_ends_with(&local_path, ".png")) mime = "image/png";
+    else if (zstr_ends_with(&local_path, ".jpg")) mime = "image/jpeg";
+    else if (zstr_ends_with(&local_path, ".svg")) mime = "image/svg+xml";
+    else if (zstr_ends_with(&local_path, ".ico")) mime = "image/x-icon";
+    else if (zstr_ends_with(&local_path, ".json")) mime = "application/json";
+
+    // Send response
+    zstr header = zstr_init();
+    zstr_fmt(&header, 
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: %s\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n", 
+        mime, zstr_len(&content)
+    );
+    
+    // For binary safety with images, verify znet_send usage logic
+    znet_send(c, zstr_cstr(&header), zstr_len(&header));
+    znet_send(c, zstr_data(&content), zstr_len(&content));
+    
+    zstr_free(&header);
+    zstr_free(&content);
+    zstr_free(&local_path);
+    return true;
+}
+
 // Main handler
 bool dashboard_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zstr_view ip) 
 {
@@ -637,6 +857,12 @@ bool dashboard_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, z
     }
     else if (zstr_view_eq(p, "/api/modules/toggle") && zstr_view_eq(m, "POST")) {
         handled = handle_modules_toggle(c, req);
+    }
+    else if (zstr_view_eq(p, "/api/modules/delete") && zstr_view_eq(m, "POST")) {
+        handled = handle_modules_delete(c, req);
+    }
+    else if (zstr_view_starts_with(p, "/dashboard")) {
+        handled = handle_static_assets(c, p);
     }
     // Protect ONLY dashboard.html - REMOVED to avoid browser auth dialog
     // The API is already protected, so we can let the HTML load
