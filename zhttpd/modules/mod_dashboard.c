@@ -755,10 +755,185 @@ static bool handle_modules_delete(znet_socket c, zstr_view req) {
     
     if (dll_res != 0) {
         // On Windows if it fails, it might be locked. We can't do much.
-        // We'll report "deleted_from_config" maybe?
     }
 
     send_json(c, 200, "{\"status\":\"ok\"}");
+    return true;
+}
+
+// Handle /api/modules/install
+static bool handle_modules_install(znet_socket c, zstr_view req) {
+    if (!check_auth(req)) {
+        send_unauthorized(c, req);
+        return true;
+    }
+    
+    // 0. Find body start in headers
+    const char *body_ptr = NULL;
+    for (size_t i = 0; i + 4 <= req.len; i++) {
+        if (memcmp(req.data + i, "\r\n\r\n", 4) == 0) {
+            body_ptr = req.data + i + 4;
+            break;
+        }
+    }
+    
+    if (!body_ptr) {
+        send_json(c, 400, "{\"error\":\"Invalid HTTP request\"}");
+        return true;
+    }
+
+    // 1. Parse Content-Length from headers
+    unsigned long long content_length = 0;
+    const char *scan = req.data;
+    while (scan < body_ptr) {
+        if (strncmp(scan, "Content-Length:", 15) == 0 || strncmp(scan, "content-length:", 15) == 0) {
+             content_length = strtoull(scan + 15, NULL, 10);
+             break;
+        }
+        const char *next = memchr(scan, '\n', body_ptr - scan);
+        if (!next) break;
+        scan = next + 1;
+    }
+    
+    if (content_length == 0) {
+        send_json(c, 400, "{\"error\":\"Missing or invalid Content-Length\"}");
+        return true;
+    }
+    
+    if (content_length > 10 * 1024 * 1024) { // 10MB limit
+        send_json(c, 400, "{\"error\":\"Payload too large\"}");
+        return true;
+    }
+    
+    // 2. Read full body from socket
+    char *full_body = malloc(content_length + 1);
+    if (!full_body) {
+        send_json(c, 500, "{\"error\":\"Out of memory\"}");
+        return true;
+    }
+    
+    // Copy what we already have in req
+    size_t have_len = req.len - (body_ptr - req.data);
+    if (have_len > content_length) have_len = content_length;
+    if (have_len > 0) memcpy(full_body, body_ptr, have_len);
+    
+    // Read remaining bytes from socket
+    size_t total = have_len;
+    while (total < content_length) {
+        char buf[4096];
+        z_ssize_t r = znet_recv(c, buf, sizeof(buf));
+        if (r <= 0) {
+            free(full_body);
+            send_json(c, 400, "{\"error\":\"Failed to read request body\"}");
+            return true;
+        }
+        
+        size_t to_copy = (size_t)r;
+        if (total + to_copy > content_length) to_copy = content_length - total;
+        memcpy(full_body + total, buf, to_copy);
+        total += to_copy;
+    }
+    full_body[total] = '\0';
+    
+    // 3. Parse JSON
+    char filename[256] = {0};
+    const char *p_fn = strstr(full_body, "\"filename\"");
+    if (p_fn) {
+        p_fn = strchr(p_fn, ':');
+        if (p_fn) {
+            p_fn = strchr(p_fn, '"');
+            if (p_fn) {
+                p_fn++;
+                const char *end = strchr(p_fn, '"');
+                if (end && (end - p_fn < sizeof(filename))) {
+                    memcpy(filename, p_fn, end - p_fn);
+                    filename[end - p_fn] = 0;
+                }
+            }
+        }
+    }
+    
+    if (filename[0] == 0 || strstr(filename, "..") || strchr(filename, '/') || strchr(filename, '\\')) {
+        char err[256];
+        snprintf(err, sizeof(err), "{\"error\":\"Invalid filename: '%s'\"}", filename);
+        send_json(c, 400, err);
+        free(full_body);
+        return true;
+    }
+    
+    // Extract code
+    const char *p_code = strstr(full_body, "\"code\"");
+    if (!p_code) {
+        send_json(c, 400, "{\"error\":\"Missing code field\"}");
+        free(full_body);
+        return true;
+    }
+    
+    p_code = strchr(p_code, ':');
+    if (p_code) {
+        while (*p_code == ' ' || *p_code == ':') p_code++;
+        if (*p_code == '"') p_code++;
+    }
+    
+    // Unescape JSON string
+    zstr code_content = zstr_init();
+    const char *curr = p_code;
+    while (curr && *curr) {
+        if (*curr == '\\') {
+            curr++;
+            if (*curr == 'n') zstr_cat(&code_content, "\n");
+            else if (*curr == 'r') zstr_cat(&code_content, "\r");
+            else if (*curr == 't') zstr_cat(&code_content, "\t");
+            else if (*curr == '"') zstr_cat(&code_content, "\"");
+            else if (*curr == '\\') zstr_cat(&code_content, "\\");
+            else zstr_cat_len(&code_content, curr, 1);
+        } else if (*curr == '"') {
+             break;
+        } else {
+             zstr_cat_len(&code_content, curr, 1);
+        }
+        curr++;
+    }
+    
+    free(full_body);
+    
+    // Save to file
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "modules/%s", filename);
+    zfile_save_atomic(filepath, zstr_data(&code_content), zstr_len(&code_content));
+    zstr_free(&code_content);
+    
+    // Compile
+    char mod_name[256];
+    char *dot = strrchr(filename, '.');
+    size_t name_len = dot ? (size_t)(dot - filename) : strlen(filename);
+    if (name_len >= sizeof(mod_name)) name_len = sizeof(mod_name) - 1;
+    memcpy(mod_name, filename, name_len);
+    mod_name[name_len] = 0;
+    
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), 
+        "gcc -shared -o modules/%s.dll modules/%s.c -O2 -std=c11 -lws2_32 "
+        "-DZNET_IMPLEMENTATION -DZTHREAD_IMPLEMENTATION -DZSTR_IMPLEMENTATION -DZFILE_IMPLEMENTATION -DZERROR_IMPLEMENTATION",
+        mod_name, mod_name);
+        
+    int res = system(cmd);
+    
+    if (res == 0) {
+        zstr content = zfile_read_all("modules.conf");
+        if (zstr_find(&content, mod_name) == -1) {
+             zstr_cat(&content, "load modules/");
+             zstr_cat(&content, mod_name);
+             zstr_cat(&content, ".dll\n");
+             zfile_save_atomic("modules.conf", zstr_data(&content), zstr_len(&content));
+        }
+        zstr_free(&content);
+        
+        send_json(c, 200, "{\"status\":\"installed\"}");
+    } else {
+        send_json(c, 500, "{\"error\":\"Compilation failed\"}");
+    }
+
     return true;
 }
 
@@ -860,6 +1035,9 @@ bool dashboard_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, z
     }
     else if (zstr_view_eq(p, "/api/modules/delete") && zstr_view_eq(m, "POST")) {
         handled = handle_modules_delete(c, req);
+    }
+    else if (zstr_view_eq(p, "/api/modules/install") && zstr_view_eq(m, "POST")) {
+        handled = handle_modules_install(c, req);
     }
     else if (zstr_view_starts_with(p, "/dashboard")) {
         handled = handle_static_assets(c, p);

@@ -729,11 +729,68 @@
             if (!isInstalled) {
                 const btn = card.querySelector('.install-btn');
                 btn.addEventListener('click', () => {
-                    alert(`Instalar ${mod.name} (${mod.filename})\n\nEsta funcionalidad estará disponible pronto.`);
+                    installModule(mod);
                 });
             }
 
             container.appendChild(card);
         });
+    }
+
+    async function installModule(mod) {
+        // UI Feedback
+        const btn = document.querySelector(`.install-btn[data-id="${mod.id}"]`);
+        if (btn) {
+            btn.textContent = 'Instalando...';
+            btn.disabled = true;
+        }
+
+        try {
+            // 1. Fetch Source Code
+            // Ensure URL is raw if it's GitHub
+            let url = mod.urls.download;
+            if (url.includes('github.com') && url.includes('/blob/')) {
+                url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
+            }
+
+            const codeResp = await fetch(url);
+            if (!codeResp.ok) throw new Error('Failed to download module source code');
+            const code = await codeResp.text();
+
+            // 2. Send to Server for Install (Save & Compile)
+            const installResp = await fetch('/api/modules/install', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filename: mod.filename, // e.g. "mod_test.c"
+                    code: code
+                })
+            });
+
+            if (!installResp.ok) {
+                const err = await installResp.json();
+                throw new Error(err.error || 'Installation failed on server');
+            }
+
+            alert(`Módulo ${mod.name} instalado y compilado correctamente.`);
+
+            // Refresh
+            loadModules(); // Update installed cache
+            // Maybe switch view?
+            document.querySelector('.tab-btn[data-tab="modules"]').click(); // Just to refresh UI state? 
+            // Or better: update Store UI
+            renderStore(storeModulesCache); // Re-render to show "Installed"
+
+        } catch (error) {
+            console.error('Install error:', error);
+            alert('Error instalando módulo: ' + error.message);
+            if (btn) {
+                btn.textContent = 'Instalar';
+                btn.disabled = false;
+            }
+        }
     }
 })();
