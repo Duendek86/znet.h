@@ -4,16 +4,16 @@
 #include "../zthread.h"
 
 static zmutex_t lock; 
-static bool init = 0;
+
+__attribute__((constructor))
+static void logger_init(void) 
+{
+    zmutex_init(&lock);
+}
 
 bool logger_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zstr_view ip) 
 {
     (void)c; 
-    if(!init)
-    {
-        zmutex_init(&lock);
-        init = 1;
-    }
     
     time_t now = time(NULL); 
     char tbuf[64]; 
@@ -25,10 +25,7 @@ bool logger_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zstr
     { 
         u += 12; 
         const char *eol = strchr(u, '\r'); 
-        if(eol) 
-        {
-            ua = zstr_sub(zstr_view_from(u), 0, eol - u); 
-        }
+        if(eol) ua = zstr_sub(zstr_view_from(u), 0, eol - u); 
     }
 
     zmutex_lock(&lock);

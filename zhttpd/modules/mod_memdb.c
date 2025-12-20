@@ -3,16 +3,16 @@
 #include "../zthread.h"
 #define MAX_KEYS 100
 
-typedef struct 
-{ 
-    zstr key; 
-    zstr val; 
-    bool active; 
-} kv_t;
+typedef struct { zstr key; zstr val; bool active; } kv_t;
 
 static kv_t db[MAX_KEYS];
 static zmutex_t lock;
-static bool init = false;
+
+__attribute__((constructor))
+static void memdb_init(void) 
+{
+    zmutex_init(&lock);
+}
 
 static void send_msg(znet_socket c, int code, zstr_view m) 
 {
@@ -25,13 +25,7 @@ static void send_msg(znet_socket c, int code, zstr_view m)
 
 bool memdb_handler(znet_socket c, zstr_view m, zstr_view path, zstr_view req, zstr_view ip) 
 {
-    (void)req; 
-    (void)ip;
-    if (!init) 
-    { 
-        zmutex_init(&lock); 
-        init = true; 
-    }
+    (void)req; (void)ip;
     
     if (!zstr_view_starts_with(path, "/db")) 
     {
@@ -65,19 +59,17 @@ bool memdb_handler(znet_socket c, zstr_view m, zstr_view path, zstr_view req, zs
             zstr_free(&buf);
             return true;
         }
-        
-        send_msg(c, 400, ZSV("Bad Request: Missing key. Usage: /db/<key>/<val>"));
+        send_msg(c, 400, ZSV("Bad Request"));
         return true; 
     }
 
-    if (zstr_view_eq(m, "PUT") || 
-        zstr_view_eq(m, "POST")) 
+    if (zstr_view_eq(m, "PUT") || zstr_view_eq(m, "POST")) 
     {
         zmutex_lock(&lock);
-        for(int i = 0; i < MAX_KEYS; i++)
+        for(int i = 0; i < MAX_KEYS; i++) 
         {
-            if (!db[i].active || zstr_view_eq_view(zstr_as_view(&db[i].key), key)) 
-            { 
+            if (!db[i].active || zstr_view_eq_view(zstr_as_view(&db[i].key), key)) {
+
                 if(db[i].active) 
                 { 
                     zstr_free(&db[i].key); 
@@ -110,27 +102,6 @@ bool memdb_handler(znet_socket c, zstr_view m, zstr_view path, zstr_view req, zs
         send_msg(c, 404, ZSV("Not Found")); 
         return true;
     }
-    
-    if (zstr_view_eq(m, "DELETE")) 
-    {
-        zmutex_lock(&lock);
-        for(int i = 0; i < MAX_KEYS; i++) 
-        {
-            if(db[i].active && zstr_view_eq_view(zstr_as_view(&db[i].key), key)) 
-            { 
-                 db[i].active = false;
-                 zstr_free(&db[i].key); 
-                 zstr_free(&db[i].val);
-                 zmutex_unlock(&lock);
-                 send_msg(c, 200, ZSV("Deleted")); 
-                 return true;
-            }
-        }
-        zmutex_unlock(&lock);
-        send_msg(c, 404, ZSV("Not Found")); 
-        return true;
-    }
-
     return false;
 }
 

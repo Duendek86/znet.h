@@ -1,4 +1,3 @@
-
 @echo off
 setlocal
 
@@ -9,18 +8,37 @@ curl -s -L "https://raw.githubusercontent.com/z-libs/zstr.h/main/zstr.h" -o zstr
 curl -s -L "https://raw.githubusercontent.com/z-libs/zfile.h/main/zfile.h" -o zfile.h
 curl -s -L "https://raw.githubusercontent.com/z-libs/zthread.h/main/zthread.h" -o zthread.h
 
-if exist "..\znet.h" (
+if exist "..\znet.h" 
+(
     echo [Windows] Copying znet.h...
     copy /Y "..\znet.h" "." >nul
-) else (
+) 
+else 
+(
     echo [Error] Could not find ..\znet.h
     goto :error
 )
 
 echo [Windows] Compiling zhttpd.exe...
-gcc zhttpd_std.c -o zhttpd.exe -std=c11 -lws2_32 -O2
+gcc zhttpd_std.c -o zhttpd.exe -std=c11 -lws2_32 -O2 -DZHTTPD_DEBUG
 
 if %errorlevel% neq 0 goto :error
+
+echo [Windows] Compiling Modules...
+if not exist "modules" mkdir modules
+
+for %%f in (modules\*.c) do 
+(
+    echo    - %%~nf.dll
+    gcc -shared -o modules\%%~nf.dll %%f -O2 -std=c11 ^
+        -DZNET_IMPLEMENTATION ^
+        -DZTHREAD_IMPLEMENTATION ^
+        -DZSTR_IMPLEMENTATION ^
+        -DZFILE_IMPLEMENTATION ^
+        -DZERROR_IMPLEMENTATION
+        
+    if %errorlevel% neq 0 goto :error
+)
 
 echo [Windows] Build Success! Run zhttpd.exe to start.
 goto :eof
