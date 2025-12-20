@@ -1,7 +1,7 @@
 // Dashboard logic with real-time updates
 (function () {
     // Check authentication
-    const credentials = sessionStorage.getItem('statsAuth');
+    const credentials = sessionStorage.getItem('dashboardAuth');
     if (!credentials) {
         window.location.href = 'login.html';
         return;
@@ -17,8 +17,13 @@
     // Initialize dashboard
     init();
 
+    // Initialize dashboard
+    init();
+
     function init() {
         setupLogout();
+        setupTabs();
+        setupModules();
         initCharts();
         fetchAndUpdate();
         // Update every 2 seconds
@@ -27,7 +32,7 @@
 
     function setupLogout() {
         document.getElementById('logoutBtn').addEventListener('click', () => {
-            sessionStorage.removeItem('statsAuth');
+            sessionStorage.removeItem('dashboardAuth');
             window.location.href = 'login.html';
         });
     }
@@ -159,7 +164,7 @@
     async function fetchAndUpdate() {
         try {
             // Fetch current stats
-            const currentResponse = await fetch('/api/stats/current', {
+            const currentResponse = await fetch('/api/dashboard/current', {
                 headers: {
                     'Authorization': `Basic ${credentials}`
                 }
@@ -167,7 +172,7 @@
 
             if (!currentResponse.ok) {
                 if (currentResponse.status === 401) {
-                    sessionStorage.removeItem('statsAuth');
+                    sessionStorage.removeItem('dashboardAuth');
                     window.location.href = 'login.html';
                 }
                 return;
@@ -176,7 +181,7 @@
             const currentStats = await currentResponse.json();
 
             // Fetch historical stats
-            const historyResponse = await fetch('/api/stats/history', {
+            const historyResponse = await fetch('/api/dashboard/history', {
                 headers: {
                     'Authorization': `Basic ${credentials}`
                 }
@@ -329,4 +334,116 @@
             clearInterval(updateInterval);
         }
     });
+
+    // --- Tabs Logic ---
+    function setupTabs() {
+        const tabs = document.querySelectorAll('.tab-btn');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs and contents
+                document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                // Add active class to clicked tab and corresponding content
+                tab.classList.add('active');
+                const targetId = tab.getAttribute('data-tab');
+                document.getElementById(targetId).classList.add('active');
+
+                // If modules tab is selected, load modules
+                if (targetId === 'modules') {
+                    loadModules();
+                }
+            });
+        });
+    }
+
+    // --- Modules Logic ---
+    function setupModules() {
+        document.getElementById('refreshModules').addEventListener('click', loadModules);
+    }
+
+    async function loadModules() {
+        const container = document.getElementById('modulesList');
+        container.innerHTML = '<div class="loading-modules">Cargando módulos...</div>';
+
+        try {
+            const response = await fetch('/api/modules/list', {
+                headers: { 'Authorization': `Basic ${credentials}` }
+            });
+
+            if (!response.ok) throw new Error('Failed to load modules');
+
+            const data = await response.json();
+            renderModules(data.modules || []);
+
+        } catch (error) {
+            console.error('Error loading modules:', error);
+            container.innerHTML = '<div class="loading-modules">Error al cargar módulos</div>';
+        }
+    }
+
+    function renderModules(modules) {
+        const container = document.getElementById('modulesList');
+        container.innerHTML = '';
+
+        if (modules.length === 0) {
+            container.innerHTML = '<div class="loading-modules">No se encontraron módulos</div>';
+            return;
+        }
+
+        modules.forEach(mod => {
+            const card = document.createElement('div');
+            card.className = `module-card ${mod.enabled ? 'enabled' : ''}`;
+
+            const checked = mod.enabled ? 'checked' : '';
+
+            card.innerHTML = `
+                <div class="module-header">
+                    <span class="module-name">${mod.name}</span>
+                    <span class="module-status"></span>
+                </div>
+                <div class="module-description">
+                    Módulo del sistema ${mod.name}
+                </div>
+                <div class="module-footer">
+                    <label class="switch">
+                        <input type="checkbox" ${checked} data-module="${mod.name}">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            `;
+
+            // Add toggle event
+            const checkbox = card.querySelector('input');
+            checkbox.addEventListener('change', (e) => {
+                toggleModule(mod.name, e.target.checked);
+            });
+
+            container.appendChild(card);
+        });
+    }
+
+    async function toggleModule(name, enabled) {
+        try {
+            const response = await fetch('/api/modules/toggle', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ module: name, enabled: enabled })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to toggle module');
+            }
+
+            // Reload to reflect changes (optional, or just update UI state)
+            loadModules();
+
+        } catch (error) {
+            console.error('Error toggling module:', error);
+            alert('Error al cambiar el estado del módulo');
+        }
+    }
 })();

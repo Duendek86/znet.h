@@ -2,7 +2,7 @@
 #include <time.h>
 #include "../zmodule.h"
 #include "../zthread.h"
-#define LIMIT 5
+#define LIMIT 50
 
 unsigned long hash_v(zstr_view s) 
 {

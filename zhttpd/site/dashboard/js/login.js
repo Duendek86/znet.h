@@ -9,7 +9,7 @@
     const btnLoader = loginBtn.querySelector('.btn-loader');
 
     // Check if already logged in
-    const credentials = sessionStorage.getItem('statsAuth');
+    const credentials = sessionStorage.getItem('dashboardAuth');
     if (credentials) {
         // Verify credentials are still valid
         verifyAuth(credentials).then(valid => {
@@ -42,7 +42,7 @@
 
         if (isValid) {
             // Store credentials
-            sessionStorage.setItem('statsAuth', credentials);
+            sessionStorage.setItem('dashboardAuth', credentials);
 
             // Redirect to dashboard
             window.location.href = 'dashboard.html';
@@ -54,7 +54,7 @@
 
     async function verifyAuth(credentials) {
         try {
-            const response = await fetch('/api/stats/current', {
+            const response = await fetch('/api/dashboard/current', {
                 headers: {
                     'Authorization': `Basic ${credentials}`,
                     'X-Requested-With': 'XMLHttpRequest'  // Mark as AJAX to prevent browser dialog
