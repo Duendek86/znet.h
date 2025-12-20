@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats Dashboard - Monitor en Tiempo Real</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="dashboard">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo-small">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 3v7h7V3H3zm11 0v7h7V3h-7zM3 14v7h7v-7H3zm11 0v7h7v-7h-7z" fill="url(#gradient)" />
+                        <defs>
+                            <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#667eea" />
+                                <stop offset="100%" style="stop-color:#764ba2" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <h1>Stats Dashboard</h1>
+                <span class="status-indicator">
+                    <span class="pulse"></span>
+                    <span>En vivo</span>
+                </span>
+            </div>
+            <div class="header-right">
+                <span class="user-info">👤 admin</span>
+                <button id="logoutBtn" class="logout-btn">Cerrar sesión</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Clientes Activos</div>
+                        <div class="stat-value" id="activeClients">0</div>
+                        <div class="stat-change">En tiempo real</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Requests Totales</div>
+                        <div class="stat-value" id="totalRequests">0</div>
+                        <div class="stat-change" id="requestsChange">+0%</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">⚡</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Tiempo de Respuesta</div>
+                        <div class="stat-value" id="avgResponse">0<span class="unit">ms</span></div>
+                        <div class="stat-change">Promedio</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">📡</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Tráfico Total</div>
+                        <div class="stat-value" id="totalTraffic">0<span class="unit">MB</span></div>
+                        <div class="stat-change" id="trafficRate">0 KB/s</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Clientes en el Tiempo</h3>
+                        <span class="chart-subtitle">Últimos 30 segundos</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="clientsChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Requests por Segundo</h3>
+                        <span class="chart-subtitle">Tasa de peticiones</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="rpsChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Tiempos de Respuesta</h3>
+                        <span class="chart-subtitle">Latencia promedio (ms)</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="responseChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Distribución de Tráfico</h3>
+                        <span class="chart-subtitle">Bytes enviados por periodo</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="trafficChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Server Info -->
+            <div class="info-section">
+                <div class="info-card">
+                    <h3>Información del Servidor</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Uptime</span>
+                            <span class="info-value" id="uptime">0s</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Requests/s</span>
+                            <span class="info-value" id="rps">0.00</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">MB Enviados</span>
+                            <span class="info-value" id="mbSent">0.00</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Última actualización</span>
+                            <span class="info-value" id="lastUpdate">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+</body>
+
+</html>
