@@ -518,9 +518,19 @@ zres server_entry(int argc, char **argv)
         if (zfile_exists(".restart")) {
              printf(" [SYS] Restart triggered.\n");
              remove(".restart");
+             
+             // Accept and close the dummy connection that triggered this
+             znet_addr dummy_addr;
+             znet_socket dummy_conn = znet_accept(s, &dummy_addr);
+             if (dummy_conn.valid) {
+                 znet_close(&dummy_conn);
+             }
+             
+             // Now safe to unload and reload
              unload_modules();
              load_config_files();
              printf(" [SYS] Reload complete.\n");
+             continue;
         }
 
         znet_addr caddr; znet_socket c = znet_accept(s, &caddr);
