@@ -1036,6 +1036,7 @@ static bool handle_modules_install(znet_socket c, zstr_view req) {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd), 
         "gcc -shared -fPIC -o modules/%s.so modules/%s -O2 -std=c11 "
+        "-D_POSIX_C_SOURCE=200809L "
         "-DZNET_IMPLEMENTATION -DZTHREAD_IMPLEMENTATION -DZSTR_IMPLEMENTATION "
         "-DZFILE_IMPLEMENTATION -DZERROR_IMPLEMENTATION",
         mod_name, filename);
