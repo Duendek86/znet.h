@@ -54,7 +54,7 @@
 
     async function verifyAuth(credentials) {
         try {
-            const response = await fetch('/api/dashboard/current', {
+            const response = await fetch('/api/auth/check', {
                 headers: {
                     'Authorization': `Basic ${credentials}`,
                     'X-Requested-With': 'XMLHttpRequest'  // Mark as AJAX to prevent browser dialog

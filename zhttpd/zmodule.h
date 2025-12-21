@@ -19,6 +19,9 @@ typedef bool (*zmodule_handler)(
 typedef struct 
 {
     const char *name;
+    const char *id;          // Module ID (e.g., "core-001")
+    const char *version;     // Module version (e.g., "2.0.0")
+    const char *description; // Module description
     zmodule_handler handler;
 } zmodule_def;
 

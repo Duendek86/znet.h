@@ -7,6 +7,30 @@
     <title>Dashboard - Monitor en Tiempo Real</title>
     <link rel="stylesheet" href="css/dashboard.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* Hide content until auth is verified */
+        body {
+            visibility: hidden;
+        }
+
+        body.authenticated {
+            visibility: visible;
+        }
+    </style>
+    <script>
+        // Immediate auth check before page renders
+        (function () {
+            const credentials = sessionStorage.getItem('dashboardAuth');
+            if (!credentials) {
+                window.location.href = 'login.html';
+            } else {
+                // Mark as authenticated so body becomes visible
+                document.addEventListener('DOMContentLoaded', function () {
+                    document.body.classList.add('authenticated');
+                });
+            }
+        })();
+    </script>
 </head>
 
 <body>

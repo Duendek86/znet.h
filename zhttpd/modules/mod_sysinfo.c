@@ -70,7 +70,10 @@ bool sysinfo_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zst
 
 zmodule_def z_module_entry = 
 { 
-    .name = "SysInfo", 
+    .name = "mod_sysinfo",
+    .id = "core-007",
+    .version = "1.0.0",
+    .description = "System metrics and host OS information exposure.",
     .handler = sysinfo_handler 
 };
 

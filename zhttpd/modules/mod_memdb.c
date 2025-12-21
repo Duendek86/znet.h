@@ -107,6 +107,9 @@ bool memdb_handler(znet_socket c, zstr_view m, zstr_view path, zstr_view req, zs
 
 zmodule_def z_module_entry = 
 { 
-    .name = "MemDB", 
+    .name = "mod_memdb",
+    .id = "core-005",
+    .version = "1.0.0",
+    .description = "Lightweight in-memory database for fast temporary storage.",
     .handler = memdb_handler 
 };

@@ -361,7 +361,11 @@ static void handle_request(znet_socket client, const char *ip_str)
         }
         t_io_buf[received] = '\0';
         
-        zstr_view full_req = {t_io_buf, (size_t)received};
+        // Keep original request for modules (BEFORE parsing modifies it)
+        char original_buf[MAX_HEADER_SIZE];
+        memcpy(original_buf, t_io_buf, received + 1);
+        zstr_view full_req = {original_buf, (size_t)received};
+        
         bool keep = strstr(t_io_buf, "Connection: keep-alive") != NULL;
         
         char *method_end = strchr(t_io_buf, ' ');
@@ -434,6 +438,20 @@ static void handle_request(znet_socket client, const char *ip_str)
     znet_close(&client);
 }
 
+static void clean_worker(void *arg) { (void)arg; } // placeholder if needed? No.
+
+static void unload_modules(void) {
+    for (int i = 0; i < g_cfg.mod_count; i++) {
+        if (g_cfg.mod_handles[i]) {
+            MOD_CLOSE(g_cfg.mod_handles[i]);
+            g_cfg.mod_handles[i] = NULL;
+        }
+        g_cfg.modules[i] = NULL;
+    }
+    g_cfg.mod_count = 0;
+    printf(" [SYS] Modules unloaded.\n");
+}
+
 static void worker(void *arg) 
 {
     (void)arg;
@@ -496,6 +514,15 @@ zres server_entry(int argc, char **argv)
     
     while (g_cfg.running) 
     {
+        // Check for restart signal
+        if (zfile_exists(".restart")) {
+             printf(" [SYS] Restart triggered.\n");
+             remove(".restart");
+             unload_modules();
+             load_config_files();
+             printf(" [SYS] Reload complete.\n");
+        }
+
         znet_addr caddr; znet_socket c = znet_accept(s, &caddr);
         if (!c.valid) 
         {
@@ -518,6 +545,8 @@ zres server_entry(int argc, char **argv)
         }
         zmutex_unlock(&pool.lock);
     }
+    
+    unload_modules(); // Cleanup on exit
     return zres_ok();
 }
 

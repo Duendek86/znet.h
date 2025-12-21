@@ -53,6 +53,9 @@ bool vhost_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zstr_
 
 zmodule_def z_module_entry = 
 { 
-    .name = "VHost", 
+    .name = "mod_vhost",
+    .id = "core-008",
+    .version = "1.0.0",
+    .description = "Multiple domain and virtual host management on a single instance.",
     .handler = vhost_handler 
 };

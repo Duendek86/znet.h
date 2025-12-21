@@ -42,6 +42,9 @@ bool logger_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zstr
 
 zmodule_def z_module_entry = 
 { 
-    .name = "Logger", 
+    .name = "mod_logger",
+    .id = "core-004",
+    .version = "1.0.0",
+    .description = "Advanced request and server error logging.",
     .handler = logger_handler 
 };

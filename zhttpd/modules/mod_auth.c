@@ -22,7 +22,10 @@ bool auth_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, zstr_v
 
 zmodule_def z_module_entry = 
 { 
-    .name = "Auth", 
+    .name = "mod_auth",
+    .id = "core-003",
+    .version = "1.0.0",
+    .description = "Authentication and access control system (Basic Auth).",
     .handler = auth_handler 
 };
 

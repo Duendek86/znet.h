@@ -68,6 +68,9 @@ bool ratelimit_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view r, zst
 
 zmodule_def z_module_entry = 
 { 
-    .name = "RateLimit", 
+    .name = "mod_ratelimit",
+    .id = "core-006",
+    .version = "1.0.0",
+    .description = "Traffic control and request rate limiting per IP to prevent abuse.",
     .handler = ratelimit_handler 
 };

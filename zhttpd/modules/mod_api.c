@@ -29,6 +29,9 @@ bool api_handler(znet_socket c, zstr_view m, zstr_view path, zstr_view req, zstr
 
 zmodule_def z_module_entry = 
 { 
-    .name = "API", 
+    .name = "mod_api",
+    .id = "core-002",
+    .version = "1.0.0",
+    .description = "Base interface for REST request management and system endpoints.",
     .handler = api_handler 
 };

@@ -7,6 +7,7 @@
 #define ATOMIC_INCREMENT(x) InterlockedIncrement((LONG*)&(x))
 #define ATOMIC_ADD(x, val) InterlockedAdd((LONG*)&(x), (LONG)(val))
 #else
+#include <dlfcn.h>
 #define ATOMIC_INCREMENT(x) __sync_add_and_fetch(&(x), 1)
 #define ATOMIC_ADD(x, val) __sync_add_and_fetch(&(x), val)
 #endif
@@ -51,6 +52,8 @@ static time_t g_last_snapshot = 0;
 #define MAX_TRACKED_CLIENTS 256
 static time_t client_last_seen[MAX_TRACKED_CLIENTS] = {0};
 
+static char g_session_token[64] = {0};
+
 // Initialize dashboard stats on first load
 static void init_dashboard(void) {
     static int initialized = 0;
@@ -58,6 +61,38 @@ static void init_dashboard(void) {
         g_dashboard.start_time = time(NULL);
         g_dashboard.last_reset = g_dashboard.start_time;
         g_last_snapshot = g_dashboard.start_time;
+        
+        // Load or Generate Session Token
+        FILE *token_file = fopen(".session_token", "r");
+        if (token_file) {
+            // Load existing token
+            if (fgets(g_session_token, sizeof(g_session_token), token_file)) {
+                // Remove newline if present
+                size_t len = strlen(g_session_token);
+                if (len > 0 && g_session_token[len-1] == '\n') {
+                    g_session_token[len-1] = '\0';
+                }
+            }
+            fclose(token_file);
+        }
+        
+        // If no token loaded or file didn't exist, generate new one
+        if (g_session_token[0] == '\0') {
+            srand((unsigned int)time(NULL));
+            const char *chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            for(int i=0; i<32; i++) {
+                g_session_token[i] = chars[rand() % 62];
+            }
+            g_session_token[32] = '\0';
+            
+            // Save token to file
+            token_file = fopen(".session_token", "w");
+            if (token_file) {
+                fprintf(token_file, "%s\n", g_session_token);
+                fclose(token_file);
+            }
+        }
+        
         initialized = 1;
     }
 }
@@ -175,22 +210,52 @@ static void track_request(unsigned long bytes_sent, unsigned long long response_
     update_snapshot();
 }
 
-// Check authentication - search within bounded buffer
-static bool check_auth(zstr_view req) {
-    // Just search for the Base64 encoded credentials anywhere in the request
-    // This is simpler and more reliable than trying to parse headers
-    const char *expected_token = "YWRtaW46c3RhdHMxMjM=";
-    size_t token_len = 16;
-    
-    // Naive string search within the buffer
-    for (size_t i = 0; i + token_len <= req.len; i++) {
-        if (memcmp(req.data + i, expected_token, token_len) == 0) {
+static bool check_basic_auth(zstr_view req) {
+    // Relaxed check: just look for the base64 token
+    // We need to ensure we are checking the actual data
+    if (req.len > 0 && req.data) {
+        if (strstr(req.data, "YWRtaW46c3RhdHMxMjM=")) {
             return true;
         }
     }
     
+    // Debug logging
+    FILE *f = fopen("auth_debug.log", "a");
+    if (f) {
+        fprintf(f, "[AuthFail] Request did not contain expected token.\n");
+        // Dump first 200 chars of request
+        if (req.data) {
+            fprintf(f, "Headers snippet: %.200s\n", req.data);
+        } else {
+             fprintf(f, "Headers snippet: (null)\n");
+        }
+        fclose(f);
+    }
+    
     return false;
 }
+
+// Check authentication - Basic Auth AND Session Token
+static bool check_full_auth(zstr_view req) {
+    // 1. Basic Auth
+    if (!check_basic_auth(req)) return false;
+    
+    // 2. Session Token
+    char token_header[128];
+    snprintf(token_header, sizeof(token_header), "X-Dashboard-Token: %s", g_session_token);
+    
+    // Check if token header is present
+    if (!strstr(req.data, token_header)) {
+        return false;
+    }
+    
+    return true;
+}
+
+static bool check_auth(zstr_view req) {
+    return check_full_auth(req);
+}
+
 
 // Send JSON response
 static void send_json(znet_socket c, int code, const char *json) {
@@ -212,43 +277,28 @@ static void send_json(znet_socket c, int code, const char *json) {
     zstr_free(&h);
 }
 
-// Send 401 Unauthorized
+// Send 401 Unauthorized (NEVER with WWW-Authenticate to avoid browser popup)
 static void send_unauthorized(znet_socket c, zstr_view req) {
-    // Check if this is an AJAX request (has X-Requested-With header)
-    bool is_ajax = false;
-    const char *ajax_marker = "X-Requested-With:";
-    for (size_t i = 0; i + 17 <= req.len; i++) {
-        if (memcmp(req.data + i, ajax_marker, 17) == 0) {
-            is_ajax = true;
-            break;
-        }
+    (void)req; // Unused
+    
+    const char *resp = 
+        "HTTP/1.1 401 Unauthorized\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 38\r\n"
+        "Connection: close\r\n\r\n"
+        "{\"error\":\"Authentication required\"}";
+    
+    znet_send(c, resp, strlen(resp));
+}
+
+// Handle /api/auth/check
+static bool handle_auth_check(znet_socket c, zstr_view req) {
+    if (!check_basic_auth(req)) {
+        send_unauthorized(c, req);
+        return true;
     }
-    
-    const char *resp;
-    size_t resp_len;
-    
-    if (is_ajax) {
-        // For AJAX: don't send WWW-Authenticate to avoid browser dialog
-        resp = 
-            "HTTP/1.1 401 Unauthorized\r\n"
-            "Content-Type: application/json\r\n"
-            "Content-Length: 38\r\n"
-            "Connection: close\r\n\r\n"
-            "{\"error\":\"Authentication required\"}";
-        resp_len = 137;
-    } else {
-        // For browser navigation: include WWW-Authenticate
-        resp = 
-            "HTTP/1.1 401 Unauthorized\r\n"
-            "WWW-Authenticate: Basic realm=\"ZHTTPD Dashboard\"\r\n"
-            "Content-Type: application/json\r\n"
-            "Content-Length: 38\r\n"
-            "Connection: close\r\n\r\n"
-            "{\"error\":\"Authentication required\"}";
-        resp_len = 181;
-    }
-    
-    znet_send(c, resp, resp_len);
+    send_json(c, 200, "{\"status\":\"ok\"}");
+    return true;
 }
 
 // Handle /api/dashboard/current
@@ -464,8 +514,40 @@ static bool handle_modules_list(znet_socket c, zstr_view req) {
         
         bool enabled = (status == 2);
         
-        zstr_fmt(&json, "    {\"name\": \"%s\", \"enabled\": %s}", 
-            mod_name, enabled ? "true" : "false");
+        // Load module to get metadata (id and version)
+        const char *id = "unknown";
+        const char *version = "0.0.0";
+        const char *description = "";
+        
+        char mod_path[512];
+        snprintf(mod_path, sizeof(mod_path), "modules/%s", entry.name);
+        
+#ifdef _WIN32
+        HMODULE h = LoadLibrary(mod_path);
+        if (h) {
+            zmodule_def *mod = (zmodule_def*)GetProcAddress(h, "z_module_entry");
+            if (mod) {
+                id = mod->id ? mod->id : "unknown";
+                version = mod->version ? mod->version : "0.0.0";
+                description = mod->description ? mod->description : "";
+            }
+            FreeLibrary(h);
+        }
+#else
+        void *h = dlopen(mod_path, RTLD_NOW | RTLD_LOCAL);
+        if (h) {
+            zmodule_def *mod = (zmodule_def*)dlsym(h, "z_module_entry");
+            if (mod) {
+                id = mod->id ? mod->id : "unknown";
+                version = mod->version ? mod->version : "0.0.0";
+                description = mod->description ? mod->description : "";
+            }
+            dlclose(h);
+        }
+#endif
+        
+        zstr_fmt(&json, "    {\"name\": \"%s\", \"id\": \"%s\", \"version\": \"%s\", \"description\": \"%s\", \"enabled\": %s}", 
+            mod_name, id, version, description, enabled ? "true" : "false");
     }
     
     zdir_close(it);
@@ -475,6 +557,51 @@ static bool handle_modules_list(znet_socket c, zstr_view req) {
     send_json(c, 200, zstr_cstr(&json));
     zstr_free(&json);
     return true;
+}
+
+// Internal helper to trigger restart
+static void trigger_restart(zstr_view req) {
+    // Create the trigger file
+    FILE *f = fopen(".restart", "w");
+    if (f) {
+        fprintf(f, "restart");
+        fclose(f);
+    } 
+
+    // Trigger the server accept loop by making a dummy connection
+    char host[256] = {0};
+    const char *hstart = strstr(req.data, "Host:");
+    if (!hstart) hstart = strstr(req.data, "host:");
+    
+    if (hstart) {
+         hstart += 5;
+         while (*hstart == ' ') hstart++;
+         const char *hend = strchr(hstart, '\r');
+         if (!hend) hend = strchr(hstart, '\n');
+         
+         if (hend) {
+             size_t len = hend - hstart;
+             if (len < 255) {
+                 memcpy(host, hstart, len);
+                 host[len] = '\0';
+             }
+         }
+    }
+    
+    uint16_t port = 8080; // default
+    if (strchr(host, ':')) {
+        port = atoi(strchr(host, ':') + 1);
+    }
+    
+    // Connect to wake up
+    znet_addr a;
+    if (znet_addr_from_str("127.0.0.1", port, &a)) {
+        znet_socket s = znet_socket_create(ZNET_IPV4, ZNET_TCP);
+        if (s.valid) {
+            znet_connect(s, a); 
+            znet_close(&s);
+        }
+    }
 }
 
 // Handle /api/modules/toggle
@@ -626,7 +753,8 @@ static bool handle_modules_toggle(znet_socket c, zstr_view req) {
     zstr_free(&content);
     zstr_free(&new_content);
     
-    send_json(c, 200, "{\"status\":\"ok\"}");
+    send_json(c, 200, "{\"status\":\"ok\", \"message\":\"Module toggled. Server restarting...\"}");
+    trigger_restart(req);
     return true;
 }
 
@@ -757,7 +885,8 @@ static bool handle_modules_delete(znet_socket c, zstr_view req) {
         // On Windows if it fails, it might be locked. We can't do much.
     }
 
-    send_json(c, 200, "{\"status\":\"ok\"}");
+    send_json(c, 200, "{\"status\":\"ok\", \"message\":\"Module deleted. Server restarting...\"}");
+    trigger_restart(req);
     return true;
 }
 
@@ -800,60 +929,52 @@ static bool handle_modules_install(znet_socket c, zstr_view req) {
         return true;
     }
     
-    if (content_length > 10 * 1024 * 1024) { // 10MB limit
-        send_json(c, 400, "{\"error\":\"Payload too large\"}");
-        return true;
-    }
-    
     // 2. Read full body from socket
-    char *full_body = malloc(content_length + 1);
+    size_t body_in_buffer = req.len - (body_ptr - req.data);
+    
+    // Calculate how much more data we need to read
+    size_t total_needed = content_length;
+    char *full_body = malloc(total_needed + 1);
     if (!full_body) {
         send_json(c, 500, "{\"error\":\"Out of memory\"}");
         return true;
     }
     
-    // Copy what we already have in req
-    size_t have_len = req.len - (body_ptr - req.data);
-    if (have_len > content_length) have_len = content_length;
-    if (have_len > 0) memcpy(full_body, body_ptr, have_len);
+    // Copy what we already have
+    if (body_in_buffer > total_needed) body_in_buffer = total_needed;
+    memcpy(full_body, body_ptr, body_in_buffer);
+    size_t total_read = body_in_buffer;
     
-    // Read remaining bytes from socket
-    size_t total = have_len;
-    while (total < content_length) {
+    // Read remaining
+    while (total_read < total_needed) {
         char buf[4096];
-        z_ssize_t r = znet_recv(c, buf, sizeof(buf));
-        if (r <= 0) {
-            free(full_body);
-            send_json(c, 400, "{\"error\":\"Failed to read request body\"}");
-            return true;
-        }
-        
-        size_t to_copy = (size_t)r;
-        if (total + to_copy > content_length) to_copy = content_length - total;
-        memcpy(full_body + total, buf, to_copy);
-        total += to_copy;
+        z_ssize_t n = znet_recv(c, buf, 
+            (total_needed - total_read) > 4096 ? 4096 : (total_needed - total_read));
+        if (n <= 0) break;
+        memcpy(full_body + total_read, buf, n);
+        total_read += n;
     }
-    full_body[total] = '\0';
+    full_body[total_read] = '\0';
     
-    // 3. Parse JSON
+    // 3. Parse JSON body for filename and code
     char filename[256] = {0};
-    const char *p_fn = strstr(full_body, "\"filename\"");
-    if (p_fn) {
-        p_fn = strchr(p_fn, ':');
-        if (p_fn) {
-            p_fn = strchr(p_fn, '"');
-            if (p_fn) {
-                p_fn++;
-                const char *end = strchr(p_fn, '"');
-                if (end && (end - p_fn < sizeof(filename))) {
-                    memcpy(filename, p_fn, end - p_fn);
-                    filename[end - p_fn] = 0;
+    const char *p = strstr(full_body, "\"filename\"");
+    if (p) {
+        p = strchr(p, ':');
+        if (p) {
+            p = strchr(p, '"');
+            if (p) {
+                p++;
+                const char *end = strchr(p, '"');
+                if (end && (end - p < sizeof(filename))) {
+                    memcpy(filename, p, end - p);
+                    filename[end - p] = '\0';
                 }
             }
         }
     }
     
-    if (filename[0] == 0 || strstr(filename, "..") || strchr(filename, '/') || strchr(filename, '\\')) {
+    if (filename[0] == '\0' || strstr(filename, "..") || strchr(filename, '/') || strchr(filename, '\\')) {
         char err[256];
         snprintf(err, sizeof(err), "{\"error\":\"Invalid filename: '%s'\"}", filename);
         send_json(c, 400, err);
@@ -888,54 +1009,81 @@ static bool handle_modules_install(znet_socket c, zstr_view req) {
             else if (*curr == '\\') zstr_cat(&code_content, "\\");
             else zstr_cat_len(&code_content, curr, 1);
         } else if (*curr == '"') {
-             break;
+            break;
         } else {
-             zstr_cat_len(&code_content, curr, 1);
+            zstr_cat_len(&code_content, curr, 1);
         }
         curr++;
     }
     
     free(full_body);
     
-    // Save to file
+    // 4. Save to file
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "modules/%s", filename);
-    zfile_save_atomic(filepath, zstr_data(&code_content), zstr_len(&code_content));
-    zstr_free(&code_content);
+    FILE *f = fopen(filepath, "wb");
+    if (!f) {
+        send_json(c, 500, "{\"error\":\"Failed to open file for writing\"}");
+        zstr_free(&code_content);
+        return true;
+    }
     
-    // Compile
+    fwrite(zstr_data(&code_content), 1, zstr_len(&code_content), f);
+    fclose(f);
+    zstr_free(&code_content);
+
+    // 5. Compile
     char mod_name[256];
     char *dot = strrchr(filename, '.');
     size_t name_len = dot ? (size_t)(dot - filename) : strlen(filename);
     if (name_len >= sizeof(mod_name)) name_len = sizeof(mod_name) - 1;
     memcpy(mod_name, filename, name_len);
-    mod_name[name_len] = 0;
-    
+    mod_name[name_len] = '\0';
+
+#ifdef _WIN32
     char cmd[2048];
     snprintf(cmd, sizeof(cmd), 
-        "gcc -shared -o modules/%s.dll modules/%s.c -O2 -std=c11 -lws2_32 "
-        "-DZNET_IMPLEMENTATION -DZTHREAD_IMPLEMENTATION -DZSTR_IMPLEMENTATION -DZFILE_IMPLEMENTATION -DZERROR_IMPLEMENTATION",
-        mod_name, mod_name);
-        
+        "gcc -shared -o modules/%s.dll modules/%s -O2 -std=c11 -lws2_32 "
+        "-DZNET_IMPLEMENTATION -DZTHREAD_IMPLEMENTATION -DZSTR_IMPLEMENTATION "
+        "-DZFILE_IMPLEMENTATION -DZERROR_IMPLEMENTATION",
+        mod_name, filename);
     int res = system(cmd);
-    
-    if (res == 0) {
-        zstr content = zfile_read_all("modules.conf");
-        if (zstr_find(&content, mod_name) == -1) {
-             zstr_cat(&content, "load modules/");
-             zstr_cat(&content, mod_name);
-             zstr_cat(&content, ".dll\n");
-             zfile_save_atomic("modules.conf", zstr_data(&content), zstr_len(&content));
-        }
-        zstr_free(&content);
-        
-        send_json(c, 200, "{\"status\":\"installed\"}");
-    } else {
+#else
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), 
+        "gcc -shared -fPIC -o modules/%s.so modules/%s -O2 -std=c11 "
+        "-DZNET_IMPLEMENTATION -DZTHREAD_IMPLEMENTATION -DZSTR_IMPLEMENTATION "
+        "-DZFILE_IMPLEMENTATION -DZERROR_IMPLEMENTATION",
+        mod_name, filename);
+    int res = system(cmd);
+#endif
+
+    if (res != 0) {
         send_json(c, 500, "{\"error\":\"Compilation failed\"}");
+        return true;
     }
 
+    // 6. Add to modules.conf
+    zstr config = zfile_read_all("modules.conf");
+    if (zstr_find(&config, mod_name) == -1) {
+#ifdef _WIN32
+        zstr_cat(&config, "load modules/");
+        zstr_cat(&config, mod_name);
+        zstr_cat(&config, ".dll\n");
+#else
+        zstr_cat(&config, "load modules/");
+        zstr_cat(&config, mod_name);
+        zstr_cat(&config, ".so\n");
+#endif
+        zfile_save_atomic("modules.conf", zstr_data(&config), zstr_len(&config));
+    }
+    zstr_free(&config);
+
+    send_json(c, 200, "{\"status\":\"ok\", \"message\":\"Installed and compiled. Server restarting...\"}");
+    trigger_restart(req);
     return true;
 }
+
 
 // Serve static assets from modules/mod_dashboard/
 static bool handle_static_assets(znet_socket c, zstr_view path) {
@@ -987,6 +1135,25 @@ static bool handle_static_assets(znet_socket c, zstr_view path) {
     else if (zstr_ends_with(&local_path, ".ico")) mime = "image/x-icon";
     else if (zstr_ends_with(&local_path, ".json")) mime = "application/json";
 
+    // Inject Token into dashboard.js
+    if (zstr_ends_with(&local_path, "dashboard.js")) {
+        // Simple manual replacement of __SESSION_TOKEN__
+        const char *placeholder = "__SESSION_TOKEN__";
+        char *pos = strstr(zstr_data(&content), placeholder);
+        if (pos) {
+            zstr new_content = zstr_init();
+            // Copy before
+            zstr_cat_len(&new_content, zstr_data(&content), pos - zstr_data(&content));
+            // Copy token
+            zstr_cat(&new_content, g_session_token);
+            // Copy after
+            zstr_cat(&new_content, pos + strlen(placeholder));
+            
+            zstr_free(&content);
+            content = new_content; // Move ownership
+        }
+    }
+
     // Send response
     zstr header = zstr_init();
     zstr_fmt(&header, 
@@ -1020,6 +1187,9 @@ bool dashboard_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, z
     // Handle stats API endpoints
     if (zstr_view_eq(p, "/api/dashboard/current")) {
         handled = handle_current_dashboard(c, req);
+    }
+    else if (zstr_view_eq(p, "/api/auth/check")) {
+        handled = handle_auth_check(c, req);
     }
     else if (zstr_view_eq(p, "/api/dashboard/history")) {
         handled = handle_history_dashboard(c, req);
@@ -1067,6 +1237,9 @@ bool dashboard_handler(znet_socket c, zstr_view m, zstr_view p, zstr_view req, z
 
 zmodule_def z_module_entry = 
 { 
-    .name = "Dashboard", 
+    .name = "mod_dashboard",
+    .id = "core-001",
+    .version = "1.0.0",
+    .description = "Web control panel with real-time statistics and module management.",
     .handler = dashboard_handler 
 };

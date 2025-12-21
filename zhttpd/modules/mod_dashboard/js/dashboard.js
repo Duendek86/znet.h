@@ -1,11 +1,37 @@
 // Dashboard logic with real-time updates
 (function () {
+    // Session Security Token (Injected by Server)
+    const SERVER_SESSION_TOKEN = "__SESSION_TOKEN__";
+
     // Check authentication
     const credentials = sessionStorage.getItem('dashboardAuth');
     if (!credentials) {
         window.location.href = 'login.html';
         return;
     }
+
+    // Auth Header Helper
+    const getHeaders = () => {
+        return {
+            'Authorization': `Basic ${credentials}`,
+            'X-Dashboard-Token': SERVER_SESSION_TOKEN,
+            'Content-Type': 'application/json'
+        };
+    };
+
+    // Version comparison (semver-like)
+    const compareVersions = (v1, v2) => {
+        const parts1 = v1.split('.').map(Number);
+        const parts2 = v2.split('.').map(Number);
+
+        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+            const p1 = parts1[i] || 0;
+            const p2 = parts2[i] || 0;
+            if (p1 > p2) return 1;
+            if (p1 < p2) return -1;
+        }
+        return 0;
+    };
 
     // Chart instances
     let clientsChart, rpsChart, responseChart, trafficChart;
@@ -172,9 +198,7 @@
         try {
             // Fetch current stats
             const currentResponse = await fetch('/api/dashboard/current', {
-                headers: {
-                    'Authorization': `Basic ${credentials}`
-                }
+                headers: getHeaders()
             });
 
             if (!currentResponse.ok) {
@@ -189,9 +213,7 @@
 
             // Fetch historical stats
             const historyResponse = await fetch('/api/dashboard/history', {
-                headers: {
-                    'Authorization': `Basic ${credentials}`
-                }
+                headers: getHeaders()
             });
 
             const historyData = await historyResponse.json();
@@ -440,7 +462,7 @@
 
         try {
             const response = await fetch('/api/modules/list', {
-                headers: { 'Authorization': `Basic ${credentials}` }
+                headers: getHeaders()
             });
 
             if (!response.ok) throw new Error('Failed to load modules');
@@ -473,10 +495,10 @@
             card.innerHTML = `
                 <div class="module-header">
                     <span class="module-name">${mod.name}</span>
-                    <span class="module-status"></span>
+                    <span class="module-version">${mod.version || '0.0.0'}</span>
                 </div>
                 <div class="module-description">
-                    Módulo del sistema ${mod.name}
+                    ${mod.description || 'Módulo del sistema ' + mod.name}
                 </div>
                 <div class="module-footer">
                     <label class="switch">
@@ -558,10 +580,7 @@
         try {
             const response = await fetch('/api/modules/delete', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Basic ${credentials}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: getHeaders(),
                 body: JSON.stringify({ module: name })
             });
 
@@ -583,10 +602,7 @@
         try {
             const response = await fetch('/api/modules/toggle', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Basic ${credentials}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: getHeaders(),
                 body: JSON.stringify({ module: name, enabled: enabled })
             });
 
@@ -617,7 +633,7 @@
             try {
                 // Background fetch installed
                 const response = await fetch('/api/modules/list', {
-                    headers: { 'Authorization': `Basic ${credentials}` }
+                    headers: getHeaders()
                 });
                 if (response.ok) {
                     const data = await response.json();
@@ -685,22 +701,32 @@
             const card = document.createElement('div');
             card.className = 'module-card store-card';
 
-            // Check if installed
-            // We match by name. Assuming names are somewhat consistent or we should have an internal ID map?
-            // "mod_api.c" -> "mod_api" ? 
-            // The JSON has "filename": "mod_dashboard.c". 
-            // Installed list names are "mod_dashboard" (without extension).
-            // Let's clean the json filename to compare.
+            // Check if installed and get version info
             const jsonName = mod.filename.replace(/\.(c|dll|so)$/, '');
-            const isInstalled = installedModulesCache.some(im => im.name === jsonName);
+            const installedMod = installedModulesCache.find(im => im.id === mod.id || im.name === jsonName);
+            const isInstalled = !!installedMod;
 
             let btnHtml = '';
             if (isInstalled) {
-                btnHtml = `
-                    <button class="install-btn installed" disabled>
-                        ✅ Instalado
-                    </button>
-                `;
+                // Compare versions
+                const installedVersion = installedMod.version || '0.0.0';
+                const storeVersion = mod.version;
+
+                const hasUpdate = compareVersions(storeVersion, installedVersion) > 0;
+
+                if (hasUpdate) {
+                    btnHtml = `
+                        <button class="install-btn update" data-id="${mod.id}" data-url="${mod.urls.download}">
+                            ⬆️ Actualizar a v${storeVersion}
+                        </button>
+                    `;
+                } else {
+                    btnHtml = `
+                        <button class="install-btn installed" disabled>
+                            ✅ Instalado v${installedVersion}
+                        </button>
+                    `;
+                }
             } else {
                 btnHtml = `
                     <button class="install-btn" data-id="${mod.id}" data-url="${mod.urls.download}">
@@ -726,8 +752,9 @@
                 </div>
             `;
 
-            if (!isInstalled) {
-                const btn = card.querySelector('.install-btn');
+            // Add event listener for install/update button
+            const btn = card.querySelector('.install-btn:not(.installed)');
+            if (btn) {
                 btn.addEventListener('click', () => {
                     installModule(mod);
                 });
@@ -746,8 +773,35 @@
         }
 
         try {
-            // 1. Fetch Source Code
-            // Ensure URL is raw if it's GitHub
+            // Check if this is an update (module already installed)
+            const jsonName = mod.filename.replace(/\.(c|dll|so)$/, '');
+            const installedMod = installedModulesCache.find(im => im.id === mod.id || im.name === jsonName);
+            const isUpdate = !!installedMod;
+
+            if (isUpdate) {
+                btn.textContent = 'Actualizando (1/2)...';
+
+                // Step 1: Delete old version
+                const deleteResp = await fetch('/api/modules/delete', {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ module: installedMod.name })
+                });
+
+                if (!deleteResp.ok) {
+                    throw new Error('Failed to remove old version');
+                }
+
+                // Wait for server to restart (give it a few seconds)
+                btn.textContent = 'Actualizando (esperando reinicio)...';
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                btn.textContent = 'Actualizando (2/2)...';
+            } else {
+                btn.textContent = 'Instalando...';
+            }
+
+            // Download source code
             let url = mod.urls.download;
             if (url.includes('github.com') && url.includes('/blob/')) {
                 url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
@@ -757,15 +811,12 @@
             if (!codeResp.ok) throw new Error('Failed to download module source code');
             const code = await codeResp.text();
 
-            // 2. Send to Server for Install (Save & Compile)
+            // Install/Reinstall
             const installResp = await fetch('/api/modules/install', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Basic ${credentials}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: getHeaders(),
                 body: JSON.stringify({
-                    filename: mod.filename, // e.g. "mod_test.c"
+                    filename: mod.filename,
                     code: code
                 })
             });
@@ -775,14 +826,17 @@
                 throw new Error(err.error || 'Installation failed on server');
             }
 
-            alert(`Módulo ${mod.name} instalado y compilado correctamente.`);
+            const message = isUpdate
+                ? `Módulo ${mod.name} actualizado correctamente a v${mod.version}.`
+                : `Módulo ${mod.name} instalado y compilado correctamente.`;
 
-            // Refresh
-            loadModules(); // Update installed cache
-            // Maybe switch view?
-            document.querySelector('.tab-btn[data-tab="modules"]').click(); // Just to refresh UI state? 
-            // Or better: update Store UI
-            renderStore(storeModulesCache); // Re-render to show "Installed"
+            alert(message);
+
+            // Refresh installed modules list
+            await loadModules();
+
+            // Re-render current store page
+            renderStorePage();
 
         } catch (error) {
             console.error('Install error:', error);
