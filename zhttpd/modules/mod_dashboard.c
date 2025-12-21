@@ -211,27 +211,11 @@ static void track_request(unsigned long bytes_sent, unsigned long long response_
 }
 
 static bool check_basic_auth(zstr_view req) {
-    // Relaxed check: just look for the base64 token
-    // We need to ensure we are checking the actual data
     if (req.len > 0 && req.data) {
         if (strstr(req.data, "YWRtaW46c3RhdHMxMjM=")) {
             return true;
         }
     }
-    
-    // Debug logging
-    FILE *f = fopen("auth_debug.log", "a");
-    if (f) {
-        fprintf(f, "[AuthFail] Request did not contain expected token.\n");
-        // Dump first 200 chars of request
-        if (req.data) {
-            fprintf(f, "Headers snippet: %.200s\n", req.data);
-        } else {
-             fprintf(f, "Headers snippet: (null)\n");
-        }
-        fclose(f);
-    }
-    
     return false;
 }
 
